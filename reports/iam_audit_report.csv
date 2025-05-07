@@ -1,5 +1,0 @@
-type,name,arn,created,age_days,mfa_enabled,unused,inline_policies,risky_policy
-user,crayons,arn:aws:iam::936222783757:user/crayons,2025-04-30 10:46:25+00:00,6,False,True,0,True
-role,AWSServiceRoleForAPIGateway,arn:aws:iam::936222783757:role/aws-service-role/ops.apigateway.amazonaws.com/AWSServiceRoleForAPIGateway,2025-04-30 19:06:55+00:00,5,False,True,0,True
-role,AWSServiceRoleForSupport,arn:aws:iam::936222783757:role/aws-service-role/support.amazonaws.com/AWSServiceRoleForSupport,2025-04-24 10:49:16+00:00,12,False,True,0,True
-role,AWSServiceRoleForTrustedAdvisor,arn:aws:iam::936222783757:role/aws-service-role/trustedadvisor.amazonaws.com/AWSServiceRoleForTrustedAdvisor,2025-04-24 10:49:16+00:00,12,False,True,0,True
