@@ -1,0 +1,36 @@
+{
+    "timestamp": "2025-05-06 15:38:39.990090",
+    "instances": [
+        {
+            "instance_id": "i-0ea6ae526ac8ed4ce",
+            "name": "CloudOps",
+            "state": "running",
+            "type": "t2.micro",
+            "public_ip": "13.235.83.52",
+            "private_ip": "172.31.13.62",
+            "region": "ap-south-1",
+            "vpc_id": "vpc-09914059d6967a351",
+            "subnet_id": "subnet-05747d038e7dcf55f",
+            "security_groups": [
+                "launch-wizard-7"
+            ],
+            "key_name": "kk",
+            "launch_time": "2025-05-06 10:07:33+00:00",
+            "age_days": 0,
+            "platform": "Linux/UNIX",
+            "tags": [
+                {
+                    "Key": "Env",
+                    "Value": "Prod"
+                },
+                {
+                    "Key": "Name",
+                    "Value": "CloudOps"
+                }
+            ],
+            "iam_role": "None",
+            "public_ssh_exposed": true
+        }
+    ],
+    "elastic_ips": []
+}

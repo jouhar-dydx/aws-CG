@@ -1,0 +1,2 @@
+bucket_name,created,age_days,region,public_access,encryption_enabled,versioning_enabled,tags
+iopsbuckets,2025-05-06 09:32:04+00:00,0,ap-south-1,False,True,True,"[{'Key': 'cloud', 'Value': ''}]"

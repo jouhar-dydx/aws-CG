@@ -1,0 +1,2 @@
+instance_id,name,state,type,public_ip,private_ip,region,vpc_id,subnet_id,key_name,age_days,platform,iam_role,public_ssh_exposed
+i-0ea6ae526ac8ed4ce,CloudOps,running,t2.micro,13.235.83.52,172.31.13.62,ap-south-1,vpc-09914059d6967a351,subnet-05747d038e7dcf55f,kk,0,Linux/UNIX,None,True
