@@ -4,6 +4,7 @@ import csv
 import json
 from botocore.exceptions import ClientError, NoCredentialsError
 import dateutil.parser
+import os
 
 # ----------------------------
 # Helper Functions
@@ -39,21 +40,29 @@ def get_valid_regions():
 
 def save_to_json(data, filename="reports/ebs_volumes_report.json"):
     try:
-        with open(filename, "w") as f:
+        os.makedirs("reports", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_filename = f"reports/ebs_volumes_report_{timestamp}.json"
+        with open(new_filename, "w") as f:
             json.dump(data, f, indent=4, default=str)
+        print(f" JSON report saved to '{new_filename}'")
     except Exception as e:
         print(f" Failed to save JSON file: {e}")
 
 
 def save_to_csv(data, filename="reports/ebs_volumes_report.csv"):
     try:
+        os.makedirs("reports", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_filename = f"reports/ebs_volumes_report_{timestamp}.csv"
+
         fieldnames = ["volume_id", "created", "age_days", "type", "size_gb", "attached_instance", "state", "region", "tags", "orphaned"]
-        with open(filename, "w", newline='') as f:
+        with open(new_filename, "w", newline='') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for item in data:
                 writer.writerow(item)
-        print(f" CSV report saved to '{filename}'")
+        print(f" CSV report saved to '{new_filename}'")
     except Exception as e:
         print(f" Failed to save CSV file: {e}")
 
@@ -70,7 +79,7 @@ def scan_ebs_volumes():
     try:
         sts = session.client("sts")
         identity = sts.get_caller_identity()
-        print(f"👤 Authenticated as: {identity['Arn']}")
+        print(f" Authenticated as: {identity['Arn']}")
     except NoCredentialsError:
         print(" AWS credentials not found. Run 'aws configure'")
         exit(1)
@@ -91,19 +100,22 @@ def scan_ebs_volumes():
             paginator = ec2_client.get_paginator("describe_volumes")
             page_iterator = paginator.paginate()
 
-            region_has_volumes = False
             for page in page_iterator:
-                for vol in page.get("Volumes", []):
-                    region_has_volumes = True  # Mark region as having volumes
+                volumes = page.get("Volumes", [])
+                if not volumes:
+                    continue  # Skip regions with no volumes
+
+                for vol in volumes:
                     volume_id = vol["VolumeId"]
                     state = vol["State"]
                     size = vol["Size"]
                     volume_type = vol["VolumeType"]
                     created = str(vol["CreateTime"])
                     age_days = calculate_age(vol["CreateTime"])
-                    tags = vol.get("Tags", [])
+
                     attached = len(vol.get("Attachments", [])) > 0
                     attached_instance = vol["Attachments"][0]["InstanceId"] if attached else "None"
+                    tags = vol.get("Tags", [])
 
                     volume_data = {
                         "volume_id": volume_id,
@@ -120,18 +132,14 @@ def scan_ebs_volumes():
 
                     all_volumes.append(volume_data)
 
-            # Only show region if it has volumes
-            if region_has_volumes:
-                print(f"\n Region: {region} ({len(page.get('Volumes', []))} volumes)")
-                for vol in all_volumes:
-                    if vol["region"] == region:
-                        status_line = " Orphaned" if vol["orphaned"] else " In Use"
-                        instance_info = f"→ Instance: {vol['attached_instance']}" if not vol["orphaned"] else ""
+                    status = "Orphaned" if not attached else "In Use"
+                    instance_info = f" | Attached to: {attached_instance}" if attached else ""
 
-                        print(f" - {status_line}: {vol['volume_id']} | Size: {vol['size_gb']} GB | Type: {vol['type']} {instance_info}")
+                    print(f" - {status}: {volume_id} ({size} GB) | Type: {volume_type} | Age: {age_days} days{instance_info}")
 
         except ClientError as e:
-            print(f" Failed to describe EBS volumes in {region}: {e}")
+            # Suppress region-specific errors for cleaner output
+            pass
 
     # Generate Report
     report_data = {
@@ -143,16 +151,16 @@ def scan_ebs_volumes():
     save_to_csv(all_volumes)
 
     # Summary
-    total_volumes = len(all_volumes)
-    orphaned_volumes = sum(1 for v in all_volumes if v["orphaned"])
+    total = len(all_volumes)
+    orphaned = sum(1 for v in all_volumes if v["orphaned"])
 
     print("\n EBS Volume Health Summary:")
-    print(f"Total Volumes: {total_volumes}")
-    print(f" Orphaned / Unused Volumes: {orphaned_volumes}")
+    print(f"Total Volumes: {total}")
+    print(f" Orphaned / Unused: {orphaned}")
 
     # Health Score
-    max_score = total_volumes * 100
-    deductions = orphaned_volumes * 70
+    max_score = total * 100
+    deductions = orphaned * 70
     final_score = max(0, max_score - deductions)
     health_percentage = round(final_score / max_score * 100, 2) if max_score > 0 else 100
 
