@@ -4,6 +4,7 @@ import csv
 import json
 from botocore.exceptions import ClientError, NoCredentialsError
 import dateutil.parser
+import os
 
 # ----------------------------
 # Helper Functions
@@ -35,50 +36,36 @@ def is_public_sg(security_groups, ec2_client):
                         return True
         return False
     except Exception as e:
-        print(f" Error fetching security group info: {e}")
+        print(f"Error fetching security group info: {e}")
         return False
 
 
 def get_valid_regions():
     session = boto3.Session()
     valid_regions = []
-
-    print("\n Detecting Enabled & Accessible Regions...\n")
-
-    # Get all available regions
-    ec2 = session.client('ec2', region_name='us-east-1')
     try:
+        ec2 = session.client('ec2', region_name='us-east-1')
         response = ec2.describe_regions()
         available_regions = [region['RegionName'] for region in response['Regions']]
     except ClientError as e:
-        print(f" Failed to list AWS regions: {e}")
+        print(f"Failed to list AWS regions: {e}")
         exit(1)
 
     for region in available_regions:
         try:
             ec2 = session.client("ec2", region_name=region)
-
-            # Use MaxResults >= 5 to avoid InvalidParameterValue
-            instances = ec2.describe_instances(MaxResults=5)
+            ec2.describe_instances(MaxResults=5)
             valid_regions.append(region)
-            print(f" Region '{region}' is accessible")
-        except ClientError as e:
-            error_code = e.response['Error'].get('Code', 'Unknown')
-            error_msg = e.response['Error'].get('Message', 'No message')
-
-            if error_code == 'AuthFailure':
-                print(f" Region '{region}': Authentication failed (check AWS keys)")
-            elif error_code == 'UnrecognizedClientException':
-                print(f" Region '{region}': Unauthenticated access (check credentials)")
-            else:
-                print(f" Region '{region}': {error_code} ({error_msg})")
+        except ClientError:
+            # Skip inaccessible regions without printing errors
+            pass
 
     if not valid_regions:
-        print("\n No accessible EC2-enabled regions found.")
-        print("  Please check:")
-        print("   - AWS credentials (`aws configure`)")
-        print("   - IAM permissions (needs DescribeInstances)")
-        print("   - Account region enablement")
+        print("No accessible EC2-enabled regions found.")
+        print("Please check:")
+        print(" - AWS credentials (`aws configure`)")
+        print(" - IAM permissions (needs DescribeInstances)")
+        print(" - Account region enablement")
         exit(1)
 
     return valid_regions
@@ -89,30 +76,29 @@ def get_valid_regions():
 # ----------------------------
 
 def scan_ec2():
-    print("\n Running Enhanced EC2 Instance & Elastic IP Scanner...\n")
+    session = boto3.Session()
+
+    print("\nRunning Enhanced EC2 Instance Scanner...\n")
 
     # Validate AWS Credentials First
     try:
         sts = boto3.client("sts")
         identity = sts.get_caller_identity()
-        print(f" Authenticated as: {identity['Arn']}")
+        print(f"Authenticated as: {identity['Arn']}")
     except NoCredentialsError:
-        print(" AWS credentials not found. Run `aws configure`")
+        print("AWS credentials not found. Run `aws configure`")
         exit(1)
     except ClientError as e:
-        print(f" Unable to validate AWS credentials: {e}")
+        print(f"Unable to validate AWS credentials: {e}")
         exit(1)
 
-    # Get Valid Regions
     valid_regions = get_valid_regions()
-
     all_instances = []
-    all_eips = []
 
     # Scan Instances
     for region in valid_regions:
-        print(f"\n Scanning EC2 Instances in Region: {region}")
-        ec2_client = boto3.client("ec2", region_name=region)
+        ec2_client = session.client("ec2", region_name=region)
+        has_instances_in_region = False
 
         try:
             paginator = ec2_client.get_paginator("describe_instances")
@@ -157,96 +143,93 @@ def scan_ec2():
                         }
 
                         all_instances.append(instance_data)
-
-                        # Print detailed instance info
-                        print(f"\n Instance ID: {instance_data['instance_id']}")
-                        print(f"   Name Tag: {instance_data['name']}")
-                        print(f"   State: {instance_data['state'].capitalize()}")
-                        print(f"   Type: {instance_data['type']}")
-                        print(f"   Public IP: {instance_data['public_ip']}")
-                        print(f"   Private IP: {instance_data['private_ip']}")
-                        print(f"   VPC ID: {instance_data['vpc_id']}")
-                        print(f"   Subnet: {instance_data['subnet_id']}")
-                        print(f"   Key Pair: {instance_data['key_name']}")
-                        print(f"   Age: {instance_data['age_days']} days")
-                        print(f"   Platform: {instance_data['platform']}")
-                        print(f"   IAM Role: {instance_data['iam_role']}")
-                        print(f"   Tags: {instance_data['tags'] or 'None'}")
-
-                        issues = []
-                        if is_public_ssh:
-                            issues.append(" Public SSH Access Detected")
-                        if public_ip != "None":
-                            issues.append(" Publicly Accessible")
-                        if not instance_data["iam_role"]:
-                            issues.append(" No IAM Role Attached")
-                        if len(tags) == 0:
-                            issues.append(" Missing Tags")
-                        elif not any(tag['Key'] == 'Owner' for tag in tags):
-                            issues.append(" Missing Owner Tag")
-
-                        if issues:
-                            print("    Issues:")
-                            for issue in issues:
-                                print(f"     - {issue}")
+                        has_instances_in_region = True
 
         except ClientError as e:
-            print(f" Failed to describe instances in {region}: {e}")
+            # Skip inaccessible regions
+            continue
 
-    # Scan Elastic IPs
-    print("\n🔁 Scanning Elastic IPs...")
-    for region in valid_regions:
-        print(f" Region: {region}")
-        ec2_client = boto3.client("ec2", region_name=region)
+        # Print region only if it had instances
+        if has_instances_in_region:
+            print(f"\nScanning EC2 Instances in Region: {region}")
+            for inst in all_instances:
+                if inst["region"] == region:
+                    print(f"Instance ID: {inst['instance_id']}")
+                    print(f"   Name Tag: {inst['name']}")
+                    print(f"   State: {inst['state'].capitalize()}")
+                    print(f"   Type: {inst['type']}")
+                    print(f"   Public IP: {inst['public_ip']}")
+                    print(f"   Private IP: {inst['private_ip']}")
+                    print(f"   VPC ID: {inst['vpc_id']}")
+                    print(f"   Subnet: {inst['subnet_id']}")
+                    print(f"   Key Pair: {inst['key_name']}")
+                    print(f"   Age: {inst['age_days']} days")
+                    print(f"   Platform: {inst['platform']}")
+                    print(f"   IAM Role: {inst['iam_role']}")
+                    print(f"   Tags: {inst['tags'] or 'None'}")
 
-        try:
-            response = ec2_client.describe_addresses()
-            for eip in response.get("Addresses", []):
-                instance_id = eip.get("InstanceId", "Unattached")
-                public_ip = eip.get("PublicIp", "Unknown")
-                allocation_id = eip.get("AllocationId", "N/A")
+                    issues = []
+                    if inst["public_ssh_exposed"]:
+                        issues.append("Public SSH Access Detected")
+                    if inst["public_ip"] != "None":
+                        issues.append("Publicly Accessible")
+                    if not inst["iam_role"]:
+                        issues.append("No IAM Role Attached")
+                    if len(inst["tags"]) == 0:
+                        issues.append("Missing Tags")
+                    elif not any(tag["Key"] == "Owner" for tag in inst["tags"]):
+                        issues.append("Missing Owner Tag")
 
-                eip_data = {
-                    "public_ip": public_ip,
-                    "allocation_id": allocation_id,
-                    "instance_id": instance_id,
-                    "region": region,
-                    "orphaned": instance_id == "Unattached"
-                }
-                all_eips.append(eip_data)
-
-                if eip_data["orphaned"]:
-                    print(f"    Orphaned EIP: {public_ip} (not attached to any instance)")
-                else:
-                    print(f"    EIP: {public_ip} → Instance: {instance_id}")
-
-        except ClientError as e:
-            print(f" Failed to describe EIPs in {region}: {e}")
+                    if issues:
+                        print("   Issues:")
+                        for issue in issues:
+                            print(f"     - {issue}")
 
     # Generate Reports
     report_data = {
         "timestamp": str(datetime.now()),
-        "instances": all_instances,
-        "elastic_ips": all_eips
+        "instances": all_instances
     }
 
     save_to_json(report_data)
-    save_to_csv(all_instances, all_eips)
+    save_to_csv(all_instances)
 
     # Summary
     total_instances = len(all_instances)
     running_instances = sum(1 for inst in all_instances if inst["state"] == "running")
     public_ssh_count = sum(1 for inst in all_instances if inst["public_ssh_exposed"])
-    orphaned_eip_count = sum(1 for eip in all_eips if eip["orphaned"])
+    missing_owner_tag_count = sum(1 for inst in all_instances if inst["tags"] and not any(tag["Key"] == "Owner" for tag in inst["tags"]))
+    no_iam_role_count = sum(1 for inst in all_instances if inst["iam_role"] == "None")
 
-    print("\n EC2 Health Summary:")
+    print("\nEC2 Health Summary:")
     print(f"Total Instances: {total_instances}")
     print(f"Running Instances: {running_instances}")
-    print(f"Elastic IPs: {len(all_eips)}")
-    print(f"Orphaned Elastic IPs: {orphaned_eip_count}")
     print(f"Instances with Public SSH Access: {public_ssh_count}")
+    print(f"Instances Missing Owner Tag: {missing_owner_tag_count}")
+    print(f"Instances Without IAM Role: {no_iam_role_count}")
 
-    print("\n EC2 Scan Complete.")
+    # Health Score Calculation
+    max_score = total_instances * 100
+    deductions = (
+        public_ssh_count * 20 +
+        missing_owner_tag_count * 15 +
+        no_iam_role_count * 10
+    )
+
+    final_score = max(0, max_score - deductions)
+    health_percentage = round(final_score / max_score * 100, 2) if max_score > 0 else 100
+
+    print(f"\nFinal EC2 Health Score: {health_percentage}/100")
+    if health_percentage >= 80:
+        print("Excellent — Few risks detected")
+    elif health_percentage >= 60:
+        print("Good, but some improvements possible")
+    elif health_percentage >= 40:
+        print("Moderate risk found")
+    else:
+        print("High risk detected")
+
+    print("\nEC2 Scan Complete.")
     return report_data
 
 
@@ -256,15 +239,22 @@ def scan_ec2():
 
 def save_to_json(data, filename="reports/ec2_instances_report.json"):
     try:
-        with open(filename, "w") as f:
+        os.makedirs("reports", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_filename = f"reports/ec2_instances_report_{timestamp}.json"
+        with open(new_filename, "w") as f:
             json.dump(data, f, indent=4, default=str)
-        print(f" JSON report saved to '{filename}'")
+        print(f"JSON report saved to '{new_filename}'")
     except Exception as e:
-        print(f" Failed to save JSON file: {e}")
+        print(f"Failed to save JSON file: {e}")
 
 
-def save_to_csv(instances, eips, filename="reports/ec2_instances_report.csv"):
+def save_to_csv(instances, filename="reports/ec2_instances_report.csv"):
     try:
+        os.makedirs("reports", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_filename = f"reports/ec2_instances_report_{timestamp}.csv"
+
         fieldnames = [
             "instance_id",
             "name",
@@ -282,27 +272,17 @@ def save_to_csv(instances, eips, filename="reports/ec2_instances_report.csv"):
             "public_ssh_exposed"
         ]
 
-        with open(filename, "w", newline='') as f:
+        with open(new_filename, "w", newline='') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for item in instances:
                 row = {k: v for k, v in item.items() if k in fieldnames}
                 writer.writerow(row)
 
-        print(f" Instance report saved to '{filename}'")
-
-        eip_filename = "reports/ec2_elastic_ips_report.csv"
-        eip_fieldnames = ["public_ip", "allocation_id", "instance_id", "region", "orphaned"]
-        with open(eip_filename, "w", newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=eip_fieldnames)
-            writer.writeheader()
-            for item in eips:
-                writer.writerow(item)
-
-        print(f" EIP report saved to '{eip_filename}'")
+        print(f"Instance report saved to '{new_filename}'")
 
     except Exception as e:
-        print(f" Failed to save CSV files: {e}")
+        print(f"Failed to save CSV files: {e}")
 
 
 # ----------------------------
