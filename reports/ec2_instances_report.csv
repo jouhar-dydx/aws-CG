@@ -1,1 +1,0 @@
-instance_id,name,state,type,public_ip,private_ip,region,vpc_id,subnet_id,key_name,age_days,platform,iam_role,public_ssh_exposed
