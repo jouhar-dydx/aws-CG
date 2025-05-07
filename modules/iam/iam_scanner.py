@@ -15,7 +15,7 @@ def calculate_age(created_date):
         try:
             created_date = dateutil.parser.parse(created_date)
         except Exception as e:
-            print(f"❌ Failed to parse date: {created_date}. Error: {e}")
+            print(f" Failed to parse date: {created_date}. Error: {e}")
             return -1
     if isinstance(created_date, datetime):
         return (now - created_date.replace(tzinfo=timezone.utc)).days
@@ -36,9 +36,9 @@ def save_to_json(data, filename="reports/iam_audit_report.json"):
     try:
         with open(filename, "w") as f:
             json.dump(data, f, indent=4, default=str)
-        print(f"\n✅ Report saved to '{filename}'")
+        print(f"\n Report saved to '{filename}'")
     except Exception as e:
-        print(f"❌ Failed to save JSON file: {e}")
+        print(f" Failed to save JSON file: {e}")
 
 
 def save_to_csv(data, filename="reports/iam_audit_report.csv"):
@@ -49,9 +49,9 @@ def save_to_csv(data, filename="reports/iam_audit_report.csv"):
             writer.writeheader()
             for item in data:
                 writer.writerow(item)
-        print(f"✅ Report saved to '{filename}'")
+        print(f" Report saved to '{filename}'")
     except Exception as e:
-        print(f"❌ Failed to save CSV file: {e}")
+        print(f" Failed to save CSV file: {e}")
 
 
 def check_risky_policy(policy_document):
@@ -77,7 +77,7 @@ def get_managed_policy_details(iam_client, policy_arn):
         )
         return policy_version['PolicyVersion']['Document']
     except ClientError as e:
-        print(f"❌ Error fetching managed policy {policy_arn}: {e}")
+        print(f" Error fetching managed policy {policy_arn}: {e}")
         return {}
 
 
@@ -129,7 +129,7 @@ def analyze_policies(iam_client, user_name=None, role_name=None):
         }
 
     except ClientError as e:
-        print(f"❌ Error analyzing policies for {resource_type} '{name}': {e}")
+        print(f" Error analyzing policies for {resource_type} '{name}': {e}")
         return {"risky_policies": [], "inline_count": 0, "attached_count": 0}
 
 
@@ -140,7 +140,7 @@ def analyze_policies(iam_client, user_name=None, role_name=None):
 def scan_iam():
     iam_client = boto3.client('iam')
 
-    print("\n🔍 Running Enhanced IAM Audit Scanner...\n")
+    print("\n Running Enhanced IAM Audit Scanner...\n")
 
     report_data = {
         "timestamp": str(datetime.now()),
@@ -155,7 +155,7 @@ def scan_iam():
     # IAM Users
     try:
         users = iam_client.list_users()['Users']
-        print("👥 IAM Users:")
+        print(" IAM Users:")
         for user in users:
             mfa_devices = iam_client.list_mfa_devices(UserName=user['UserName'])['MFADevices']
             login_profile = None
@@ -196,13 +196,13 @@ def scan_iam():
 
             status = ""
             if not entry["mfa_enabled"]:
-                status += "🔐MFA,"
+                status += "MFA,"
             if entry["unused"]:
-                status += "🗑️Unused,"
+                status += "Unused,"
             if entry["inline_policies"] > 0:
-                status += "⚙️Inline,"
+                status += "Inline,"
             if len(entry["risky_policies"]) > 0:
-                status += "🧼Risky"
+                status += "Risky"
 
             print(f" - {user['UserName']} (Age: {entry['age_days']} days)", end="")
             if status:
@@ -211,12 +211,12 @@ def scan_iam():
                 print()
 
     except ClientError as e:
-        print(f"❌ Error listing IAM users: {e}")
+        print(f" Error listing IAM users: {e}")
 
     # IAM Roles
     try:
         roles = iam_client.list_roles()['Roles']
-        print("\n🎭 IAM Roles:")
+        print("\n IAM Roles:")
         for role in roles:
             last_used = role.get('RoleLastUsed', {}).get('LastUsedDate')
             unused = is_old_entity(last_used)
@@ -248,11 +248,11 @@ def scan_iam():
 
             status = ""
             if entry["unused"]:
-                status += "🗑️Unused,"
+                status += "Unused,"
             if entry["inline_policies"] > 0:
-                status += "⚙️Inline,"
+                status += "Inline,"
             if len(entry["risky_policies"]) > 0:
-                status += "🧼Risky"
+                status += "Risky"
 
             print(f" - {role['RoleName']} (Age: {entry['age_days']} days)", end="")
             if status:
@@ -261,7 +261,7 @@ def scan_iam():
                 print()
 
     except ClientError as e:
-        print(f"❌ Error listing IAM roles: {e}")
+        print(f" Error listing IAM roles: {e}")
 
     # Save reports
     save_to_json(report_data)
@@ -270,8 +270,8 @@ def scan_iam():
     # Calculate IAM Health Score
     total_entities = len(report_data["users"]) + len(report_data["roles"])
     if total_entities == 0:
-        print("\n📊 IAM Health Score: N/A")
-        print("ℹ️ No IAM users or roles found to analyze.")
+        print("\n IAM Health Score: N/A")
+        print("No IAM users or roles found to analyze.")
         return
 
     safe_entities = 0
@@ -329,21 +329,21 @@ def scan_iam():
     max_score = total_entities * 4  # Each entity can contribute up to 4 points
     health_score = round((safe_entities / max_score) * 100, 2)
 
-    print(f"\n📊 IAM Health Score: {health_score}/100")
+    print(f"\n IAM Health Score: {health_score}/100")
 
     if health_score >= 80:
-        print("✅ Excellent — Your IAM configuration follows best practices.")
+        print(" Excellent — Your IAM configuration follows best practices.")
     elif health_score >= 60:
-        print("⚠️ Good, but some improvements possible.")
+        print(" Good, but some improvements possible.")
     elif health_score >= 20:
-        print("🚩 Significant security risks detected.")
+        print(" Significant security risks detected.")
     else:
-        print("🚨 Critical IAM misconfigurations found.")
+        print(" Critical IAM misconfigurations found.")
 
-    print("\n🔍 Detailed Breakdown:")
+    print("\n Detailed Breakdown:")
 
     # --- Unused Entities ---
-    print("\n🗑️ Unused Entities (not active in last 90 days):")
+    print("\n Unused Entities (not active in last 90 days):")
     if unused_entities:
         for item in unused_entities:
             print(f" - {item}")
@@ -351,7 +351,7 @@ def scan_iam():
         print("   None found.")
 
     # --- Inline Policies ---
-    print("\n⚙️ Inline Policies (harder to manage):")
+    print("\n Inline Policies (harder to manage):")
     if inline_policies_list:
         for item in inline_policies_list:
             print(f" - {item}")
@@ -359,11 +359,11 @@ def scan_iam():
         print("   None found.")
 
     # --- Risky Policies ---
-    print("\n🧼 Risky Policies (broad permissions):")
+    print("\n Risky Policies (broad permissions):")
     if risky_policies_details:
         for item in risky_policies_details:
             print(item)
     else:
         print("   None found.")
 
-    print("\n✅ IAM Scan Complete.")
+    print("\n IAM Scan Complete.")

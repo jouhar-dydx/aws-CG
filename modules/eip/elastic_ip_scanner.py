@@ -15,9 +15,9 @@ def save_to_json(data, filename="reports/ec2_elastic_ips_report.json"):
     try:
         with open(filename, "w") as f:
             json.dump(data, f, indent=4, default=str)
-        # print(f"✅ JSON report saved to '{filename}'")
+        # print(f" JSON report saved to '{filename}'")
     except Exception as e:
-        print(f"❌ Failed to save JSON file: {e}")
+        print(f" Failed to save JSON file: {e}")
 
 
 def save_to_csv(data, filename="reports/ec2_elastic_ips_report.csv"):
@@ -36,9 +36,9 @@ def save_to_csv(data, filename="reports/ec2_elastic_ips_report.csv"):
             writer.writeheader()
             for item in data:
                 writer.writerow(item)
-        # print(f"✅ CSV report saved to '{filename}'")
+        # print(f" CSV report saved to '{filename}'")
     except Exception as e:
-        print(f"❌ Failed to save CSV file: {e}")
+        print(f" Failed to save CSV file: {e}")
 
 
 def get_valid_regions():
@@ -59,11 +59,11 @@ def get_valid_regions():
                 # Suppress error messages for cleaner run
                 pass
     except ClientError as e:
-        print(f"❌ Unable to describe AWS regions: {e}")
+        print(f" Unable to describe AWS regions: {e}")
         exit(1)
 
     if not valid_regions:
-        print("❌ No accessible regions found. Check AWS credentials or IAM permissions.")
+        print(" No accessible regions found. Check AWS credentials or IAM permissions.")
         exit(1)
 
     return valid_regions
@@ -76,25 +76,25 @@ def get_valid_regions():
 def scan_elastic_ips():
     session = boto3.Session()
 
-    print("\n🔍 Running Enhanced Elastic IP Scanner...\n")
+    print("\n Running Enhanced Elastic IP Scanner...\n")
 
     # Validate AWS Credentials
     try:
         sts = session.client("sts")
         identity = sts.get_caller_identity()
-        print(f"👤 Authenticated as: {identity['Arn']}")
+        print(f" Authenticated as: {identity['Arn']}")
     except NoCredentialsError:
-        print("❌ AWS credentials not found. Run 'aws configure'")
+        print(" AWS credentials not found. Run 'aws configure'")
         exit(1)
     except ClientError as e:
-        print(f"❌ Unable to validate AWS credentials: {e}")
+        print(f" Unable to validate AWS credentials: {e}")
         exit(1)
 
     valid_regions = get_valid_regions()
     all_eips = []
 
     # Scan Elastic IPs
-    print("\n🔁 Scanning Elastic IPs Across Regions...")
+    print("\n Scanning Elastic IPs Across Regions...")
     for region in valid_regions:
         ec2_client = session.client("ec2", region_name=region)
 
@@ -120,9 +120,9 @@ def scan_elastic_ips():
                 all_eips.append(eip_data)
 
                 if eip_data["orphaned"]:
-                    print(f"   🚫 Orphaned EIP: {public_ip} (not attached to any instance)")
+                    print(f" Orphaned EIP: {public_ip} (not attached to any instance)")
                 else:
-                    print(f"   📍 EIP: {public_ip} → Instance: {instance_id}")
+                    print(f" EIP: {public_ip} → Instance: {instance_id}")
 
         except ClientError as e:
             # Optionally log region errors silently
@@ -141,7 +141,7 @@ def scan_elastic_ips():
     total_eips = len(all_eips)
     orphaned_eip_count = sum(1 for eip in all_eips if eip["orphaned"])
 
-    print("\n📊 Elastic IP Health Summary:")
+    print("\n Elastic IP Health Summary:")
     print(f"Total Elastic IPs: {total_eips}")
     print(f"Orphaned / Unattached: {orphaned_eip_count}")
 
@@ -152,17 +152,17 @@ def scan_elastic_ips():
     final_score = max(0, max_score - deductions)
     health_percentage = round(final_score / max_score * 100, 2) if max_score > 0 else 100
 
-    print(f"\n📈 Final Elastic IP Health Score: {health_percentage}/100")
+    print(f"\n Final Elastic IP Health Score: {health_percentage}/100")
     if health_percentage >= 80:
-        print("✅ Excellent — no orphaned IPs")
+        print(" Excellent — no orphaned IPs")
     elif health_percentage >= 60:
-        print("⚠️ Good, but some cleanup needed")
+        print(" Good, but some cleanup needed")
     elif health_percentage >= 20:
-        print("🚩 Moderate risk — several unused IPs")
+        print(" Moderate risk — several unused IPs")
     else:
-        print("🚨 Critical — Most IPs are orphaned!")
+        print(" Critical — Most IPs are orphaned!")
 
-    print("\n✅ Elastic IP Scan Complete.")
+    print("\n Elastic IP Scan Complete.")
     return report_data
 
 
