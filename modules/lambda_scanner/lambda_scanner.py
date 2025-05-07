@@ -297,7 +297,6 @@ def check_risky_policy(policy_document):
             return True
     return False
 
-
 # ----------------------------
 # Run It!
 # ----------------------------

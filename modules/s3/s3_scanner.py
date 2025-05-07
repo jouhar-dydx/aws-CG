@@ -22,9 +22,9 @@ def save_to_json(data, filename="reports/s3_buckets_report.json"):
     try:
         with open(filename, "w") as f:
             json.dump(data, f, indent=4, default=str)
-        print(f"✅ JSON report saved to '{filename}'")
+        print(f" JSON report saved to '{filename}'")
     except Exception as e:
-        print(f"❌ Failed to save JSON file: {e}")
+        print(f" Failed to save JSON file: {e}")
 
 
 def save_to_csv(data, filename="reports/s3_buckets_report.csv"):
@@ -36,9 +36,9 @@ def save_to_csv(data, filename="reports/s3_buckets_report.csv"):
             for item in data:
                 row = {k: v for k, v in item.items() if k in fieldnames}
                 writer.writerow(row)
-        print(f"✅ CSV report saved to '{filename}'")
+        print(f" CSV report saved to '{filename}'")
     except Exception as e:
-        print(f"❌ Failed to save CSV file: {e}")
+        print(f" Failed to save CSV file: {e}")
 
 
 def check_overly_permissive_policy(policy_document):
@@ -62,18 +62,18 @@ def check_overly_permissive_policy(policy_document):
 def scan_s3():
     session = boto3.Session()
 
-    print("\n🔍 Running Enhanced S3 Bucket Scanner...\n")
+    print("\n Running Enhanced S3 Bucket Scanner...\n")
 
     # Validate AWS Credentials
     try:
         sts = session.client("sts")
         identity = sts.get_caller_identity()
-        print(f"👤 Authenticated as: {identity['Arn']}")
+        print(f" Authenticated as: {identity['Arn']}")
     except NoCredentialsError:
-        print("❌ AWS credentials not found. Run 'aws configure'")
+        print(" AWS credentials not found. Run 'aws configure'")
         exit(1)
     except ClientError as e:
-        print(f"❌ Unable to validate AWS credentials: {e}")
+        print(f" Unable to validate AWS credentials: {e}")
         exit(1)
 
     s3_client = session.client("s3")
@@ -84,10 +84,10 @@ def scan_s3():
         response = s3_client.list_buckets()
         buckets = response.get("Buckets", [])
     except ClientError as e:
-        print(f"❌ Error listing S3 buckets: {e}")
+        print(f" Error listing S3 buckets: {e}")
         exit(1)
 
-    print(f"📦 Found {len(buckets)} S3 buckets.\n")
+    print(f" Found {len(buckets)} S3 buckets.\n")
 
     for bucket in buckets:
         bucket_name = bucket["Name"]
@@ -99,7 +99,7 @@ def scan_s3():
                 region = "us-east-1"
         except ClientError as e:
             region = "unknown"
-            print(f"⚠️ Could not fetch region for '{bucket_name}': {e}")
+            print(f" Could not fetch region for '{bucket_name}': {e}")
 
         try:
             public_access_block = s3_client.get_public_access_block(Bucket=bucket_name)
@@ -112,7 +112,7 @@ def scan_s3():
             public_access = not public_access  # If all blocks are enabled → not public
         except ClientError as e:
             public_access = True  # Assume risky if we can't get config
-            print(f"⚠️ Could not fetch public access block for '{bucket_name}': {e}")
+            print(f" Could not fetch public access block for '{bucket_name}': {e}")
 
         try:
             encryption = s3_client.get_bucket_encryption(Bucket=bucket_name)
@@ -129,7 +129,7 @@ def scan_s3():
             versioning_enabled = versioning.get("Status") == "Enabled"
         except ClientError as e:
             versioning_enabled = False
-            print(f"⚠️ Could not fetch versioning for '{bucket_name}': {e}")
+            print(f" Could not fetch versioning for '{bucket_name}': {e}")
 
         try:
             tagging = s3_client.get_bucket_tagging(Bucket=bucket_name)
@@ -160,30 +160,30 @@ def scan_s3():
         all_buckets.append(bucket_data)
 
         # Print summary per bucket
-        print(f"🧾 Bucket: {bucket_data['bucket_name']} ({bucket_data['region']})")
+        print(f"   Bucket: {bucket_data['bucket_name']} ({bucket_data['region']})")
         print(f"   Created: {bucket_data['created']} | Age: {bucket_data['age_days']} days")
-        print(f"   Public Access: {'❌ Yes' if bucket_data['public_access'] else '✅ No'}")
-        print(f"   Encryption: {'✅ Enabled' if bucket_data['encryption_enabled'] else '❌ Disabled'}")
-        print(f"   Versioning: {'✅ Enabled' if bucket_data['versioning_enabled'] else '❌ Disabled'}")
-        print(f"   Risky Policy: {'🚩 Yes' if bucket_data['has_risky_policy'] else '✅ No'}")
+        print(f"   Public Access: {' Yes' if bucket_data['public_access'] else ' No'}")
+        print(f"   Encryption: {' Enabled' if bucket_data['encryption_enabled'] else ' Disabled'}")
+        print(f"   Versioning: {' Enabled' if bucket_data['versioning_enabled'] else ' Disabled'}")
+        print(f"   Risky Policy: {' Yes' if bucket_data['has_risky_policy'] else ' No'}")
         print(f"   Tags: {bucket_data['tags'] or 'None'}")
 
         issues = []
         if bucket_data["public_access"]:
-            issues.append("🔓 Publicly Accessible")
+            issues.append(" Publicly Accessible")
         if not bucket_data["encryption_enabled"]:
-            issues.append("🔒 Missing Encryption")
+            issues.append(" Missing Encryption")
         if not bucket_data["versioning_enabled"]:
-            issues.append("🔄 Versioning Disabled")
+            issues.append(" Versioning Disabled")
         if not bucket_data["tags"]:
-            issues.append("🏷️ No Tags Found")
+            issues.append(" No Tags Found")
         elif not any(tag["Key"] == "Owner" for tag in bucket_data["tags"]):
-            issues.append("👤 Missing Owner Tag")
+            issues.append(" Missing Owner Tag")
         if bucket_data["has_risky_policy"]:
-            issues.append("🧼 Overly Permissive Bucket Policy")
+            issues.append(" Overly Permissive Bucket Policy")
 
         if issues:
-            print("   🔍 Issues:")
+            print("    Issues:")
             for issue in issues:
                 print(f"     - {issue}")
 
@@ -204,7 +204,7 @@ def scan_s3():
     no_tags = sum(1 for b in all_buckets if not b["tags"])
     risky_policies = sum(1 for b in all_buckets if b["has_risky_policy"])
 
-    print("\n📊 S3 Health Summary:")
+    print("\n S3 Health Summary:")
     print(f"Total Buckets: {total_buckets}")
     print(f"Publicly Accessible: {public_buckets}")
     print(f"Missing Encryption: {no_encryption}")
@@ -225,17 +225,17 @@ def scan_s3():
     final_score = max(0, max_score - deductions)
     health_percentage = round(final_score / max_score * 100, 2) if max_score > 0 else 100
 
-    print(f"\n📈 Final S3 Health Score: {health_percentage}/100")
+    print(f"\n Final S3 Health Score: {health_percentage}/100")
     if health_percentage >= 80:
-        print("✅ Excellent — All buckets appear secure.")
+        print(" Excellent — All buckets appear secure.")
     elif health_percentage >= 60:
-        print("⚠️ Good, but some improvements possible.")
+        print(" Good, but some improvements possible.")
     elif health_percentage >= 20:
-        print("🚩 Moderate risk detected.")
+        print(" Moderate risk detected.")
     else:
-        print("🚨 Critical misconfigurations found.")
+        print(" Critical misconfigurations found.")
 
-    print("\n✅ S3 Scan Complete.")
+    print("\n S3 Scan Complete.")
     return report_data
 
 
