@@ -1,10 +1,10 @@
-from modules.ebs.ebs_scanner import scan_iam
 from modules.utils import load_aws_services
 from modules.eip.elastic_ip_scanner import scan_elastic_ips
 from modules.s3.s3_scanner import scan_s3
 from modules.ebs.ebs_scanner import scan_ebs_volumes
 from modules.ec2.ec2_scanner import scan_ec2
 from modules.lambda_scanner.lambda_scanner import scan_lambda
+from modules.iam.iam_scanner import scan_iam
 
 
 def main():
