@@ -5,6 +5,7 @@ from modules.ebs.ebs_scanner import scan_ebs_volumes
 from modules.ec2.ec2_scanner import scan_ec2
 from modules.lambda_scanner.lambda_scanner import scan_lambda
 from modules.iam.iam_scanner import scan_iam
+from modules.eks.eks_scanner import scan_eks
 
 
 def main():
