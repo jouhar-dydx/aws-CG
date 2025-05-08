@@ -23,6 +23,7 @@ def main():
     scan_ebs_volumes()
     scan_ec2()
     scan_lambda()
+    scan_eks()
 
 if __name__ == "__main__":
     main()
