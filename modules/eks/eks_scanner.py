@@ -1,20 +1,18 @@
-# modules/eks_scanner.py
-
 from datetime import datetime, timezone
 import boto3
-import csv
 import json
 import os
 from botocore.exceptions import ClientError
 from kubernetes import client as k8s_client
 from kubernetes.client.rest import ApiException
 
-# Local imports (relative to project root)
+# Local imports (optional)
 try:
     from ai.predict_root_cause import predict_root_cause
 except ImportError:
-    print("AI module 'ai/predict_root_cause' not found. Running without root cause prediction.")
     predict_root_cause = lambda x: {"predicted_cause": "Unknown", "confidence": 0}
+    print("AI module 'ai/predict_root_cause' not found. Running without prediction.")
+
 
 # ----------------------------
 # Helper Functions
@@ -87,7 +85,7 @@ def scan_eks_clusters(session):
 
     print("\nDetecting Enabled & Accessible Regions...\n")
 
-    # Get all regions where EKS can be accessed
+    # Get all available regions via EC2
     ec2 = session.client('ec2', region_name='us-east-1')
     try:
         response = ec2.describe_regions()
@@ -101,9 +99,8 @@ def scan_eks_clusters(session):
             eks = session.client("eks", region_name=region)
             eks.list_clusters(maxResults=1)
             valid_regions.append(region)
-            print(f"Region '{region}' is accessible")
         except ClientError:
-            pass  # Silently skip inaccessible regions
+            continue  # Skip inaccessible regions silently
 
     if not valid_regions:
         print("No accessible EKS-enabled regions found.")
@@ -113,19 +110,18 @@ def scan_eks_clusters(session):
 
     for region in valid_regions:
         eks = session.client("eks", region_name=region)
-
-        print(f"\nScanning EKS Clusters in Region: {region}")
         try:
             response = eks.list_clusters()
             cluster_names = response.get("clusters", [])
             if not cluster_names:
-                print(f"   ➖ No EKS clusters found in this region.")
-                continue
+                continue  # Skip regions with no clusters
 
+            print(f"\nScanning EKS Clusters in Region: {region}")
             for cluster_name in cluster_names:
                 try:
                     cluster_info = eks.describe_cluster(name=cluster_name)
                     cluster = cluster_info["cluster"]
+
                     name = cluster["name"]
                     version = cluster["version"]
                     vpc_id = cluster.get("resourcesVpcConfig", {}).get("vpc")
@@ -154,13 +150,27 @@ def scan_eks_clusters(session):
                         "issues": []
                     }
 
+                    # Node Groups
+                    ng_paginator = eks.get_paginator("list_nodegroups")
+                    nodegroup_names = []
+                    for page in ng_paginator.paginate(clusterName=name):
+                        nodegroup_names.extend(page.get("nodegroups", []))
+
+                    # Fargate Profiles
+                    fp_paginator = eks.get_paginator("list_fargate_profiles")
+                    fargate_profiles = []
+                    for page in fp_paginator.paginate(clusterName=name):
+                        fargate_profiles.extend(page.get("fargateProfileNames", []))
+
+                    eks_data["node_groups_count"] = len(nodegroup_names)
+                    eks_data["fargate_profiles_count"] = len(fargate_profiles)
                     all_clusters.append(eks_data)
 
                 except ClientError as ce:
-                    print(f" Failed to describe cluster {cluster_name}: {ce}")
+                    print(f"Failed to describe cluster {cluster_name}: {ce}")
 
         except ClientError as e:
-            print(f" Failed to list clusters in {region}: {e}")
+            continue  # Silently skip failed region scans
 
     return all_clusters, valid_regions
 
@@ -170,7 +180,7 @@ def scan_eks_clusters(session):
 # ----------------------------
 
 def connect_k8s_from_session_manager(session, region, cluster_name):
-    """Use boto3 credentials to access K8s API without kubeconfig"""
+    """Use boto3 credentials to access K8s API"""
     eks = session.client("eks", region_name=region)
     try:
         resp = eks.describe_cluster(name=cluster_name)
@@ -185,7 +195,7 @@ def connect_k8s_from_session_manager(session, region, cluster_name):
         api_client = k8s_client.ApiClient(configuration)
         return api_client
     except Exception as e:
-        print(f" Unable to authenticate to Kubernetes API: {e}")
+        print(f"Unable to authenticate to Kubernetes API: {e}")
         return None
 
 
@@ -211,22 +221,20 @@ def scan_k8s_resources(session, cluster_data):
         # Scan Pods
         try:
             ret = core_v1.list_pod_for_all_namespaces(watch=False)
-            crashloop_pods = 0
-            pending_pods = 0
-            image_pull_errors = 0
-
-            for p in ret.items:
-                if p.status.phase == "Pending":
-                    pending_pods += 1
-                elif p.status.container_statuses:
-                    statuses = p.status.container_statuses
-                    for c in statuses:
-                        if c.state and c.state.waiting:
-                            reason = c.state.waiting.reason
-                            if reason == "CrashLoopBackOff":
-                                crashloop_pods += 1
-                            elif reason == "ImagePullBackOff":
-                                image_pull_errors += 1
+            crashloop_pods = sum(
+                1 for p in ret.items
+                if p.status.phase == "Running" and any(
+                    c.state.waiting and c.state.waiting.reason == "CrashLoopBackOff"
+                    for c in p.status.container_statuses or []
+                )
+            )
+            pending_pods = sum(1 for p in ret.items if p.status.phase == "Pending")
+            image_pull_errors = sum(
+                1 for p in ret.items if p.status.container_statuses and any(
+                    c.state.waiting and c.state.waiting.reason == "ImagePullBackOff"
+                    for c in p.status.container_statuses or []
+                )
+            )
 
             cluster["total_pods"] = len(ret.items)
             cluster["pending_pods"] = pending_pods
@@ -242,7 +250,7 @@ def scan_k8s_resources(session, cluster_data):
 
         except ApiException as pe:
             issues.append(f"Pod listing failed: {pe.reason}")
-            print(f" Pod scanning error: {pe.reason}")
+            print(f"Pod scanning error: {pe.reason}")
 
         # Scan Nodes
         try:
@@ -257,35 +265,24 @@ def scan_k8s_resources(session, cluster_data):
 
         except ApiException as ne:
             issues.append(f"Node scanning failed: {ne.reason}")
-            print(f" Node scanning error: {ne.reason}")
+            print(f"Node scanning error: {ne.reason}")
 
         # Scan Events for Warnings
         try:
             events = core_v1.list_event_for_all_namespaces(limit=50)
-            relevant_events = []
-            for ev in events.items:
-                if ev.type == "Warning":
-                    relevant_events.append({
-                        "reason": ev.reason,
-                        "message": ev.message,
-                        "type": ev.type,
-                        "timestamp": str(ev.last_timestamp)
-                    })
-
+            relevant_events = [ev.message for ev in events.items if ev.type == "Warning"]
             cluster["events"] = relevant_events
-            if relevant_events:
-                issues.append("Recent Warning Events Found")
 
-                # Predict root cause
-                sample_message = "\n".join([ev["message"] for ev in relevant_events[:3]])
+            if relevant_events:
+                sample_message = "\n".join(relevant_events[:3])
                 prediction = predict_root_cause(sample_message)
                 predicted_cause = prediction.get("predicted_cause", "Unknown")
                 confidence = prediction.get("confidence", 0)
 
-                issues[-1] += f" | AI: Possible cause → {predicted_cause} ({confidence}% confidence)"
+                issues.append(f"AI: Possible root cause → {predicted_cause} ({confidence}% confidence)")
 
         except ApiException as ee:
-            print(f" Event scanning error: {ee.reason}")
+            print(f"Event scanning error: {ee.reason}")
 
         # Update cluster metadata
         cluster["issues"] = issues
@@ -309,14 +306,13 @@ def scan_eks():
         identity = sts.get_caller_identity()
         print(f"Authenticated as: {identity['Arn']}")
     except Exception as e:
-        print(f" Unable to validate AWS credentials: {e}")
+        print(f"Unable to validate AWS credentials: {e}")
         exit(1)
 
     # Step 1: Scan EKS Clusters via AWS API
     eks_clusters, valid_regions = scan_eks_clusters(session)
 
     # Step 2: Scan Kubernetes Resources via K8s API
-    print("\nAnalyzing Kubernetes Resources...\n")
     full_clusters = scan_k8s_resources(session, eks_clusters)
 
     # Generate Report
@@ -328,19 +324,19 @@ def scan_eks():
     save_to_json(report_data)
     save_to_csv(full_clusters)
 
-    print("\nEKS Health Summary:")
+    # Summary
     total_clusters = len(full_clusters)
     crashloop_pods = sum(c.get("crashloop_pods", 0) for c in full_clusters)
     pending_pods = sum(c.get("pending_pods", 0) for c in full_clusters)
     image_pull_errors = sum(c.get("image_pull_errors", 0) for c in full_clusters)
     not_ready_nodes = sum(c.get("nodes_not_ready", 0) for c in full_clusters)
 
+    print("\nEKS Health Summary:")
     print(f"Total Clusters: {total_clusters}")
     print(f"Pods in CrashLoopBackOff: {crashloop_pods}")
     print(f"Pods in Pending: {pending_pods}")
     print(f"Image Pull Errors: {image_pull_errors}")
     print(f"Worker Nodes Not Ready: {not_ready_nodes}")
-
     print("\n EKS Scan Complete.")
     return report_data
 
