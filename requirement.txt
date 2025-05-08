@@ -3,3 +3,7 @@ streamlit
 pandas
 python-dateutil
 streamlit
+kubernetes
+requests
+scikit-learn
+joblib
